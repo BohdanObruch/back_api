@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import json
 import os
 from datetime import date, datetime
 from threading import Lock
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field, ValidationError
+from fastapi.openapi.utils import get_openapi
+import json
 
 
 DATE_FORMAT = "%d.%m.%Y"
@@ -29,7 +29,8 @@ class UserResponse(UserPayload):
 
 
 app = FastAPI(
-    title="User Management API",
+    title="User management system API",
+    description="API that handles user management",
     version="1.0.0",
     swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
@@ -93,17 +94,21 @@ async def _read_payload(request: Request) -> UserPayload:
         raise HTTPException(status_code=400, detail=exc.errors()) from exc
 
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
-    return JSONResponse(status_code=exc.status_code, content={"message": exc.detail})
-
-
-@app.get("/health")
+@app.get("/health", include_in_schema=False)
 def healthcheck() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/api/user/create", response_model=UserResponse, response_model_by_alias=True)
+@app.post(
+    "/api/user/create",
+    summary="Create a user",
+    response_model=UserResponse,
+    response_model_by_alias=True,
+    responses={
+        200: {"description": "User created"},
+        400: {"description": "Bad request"},
+    },
+)
 async def create_user(request: Request) -> dict:
     global _next_id
 
@@ -117,43 +122,102 @@ async def create_user(request: Request) -> dict:
     return user
 
 
-@app.get("/api/user/id/{user_id}", response_model=UserResponse, response_model_by_alias=True)
-def get_user_by_id(user_id: int) -> dict:
-    return _get_user_or_404(user_id)
+@app.get(
+    "/api/user/id/{id}",
+    summary="Get user by ID",
+    response_model=UserResponse,
+    response_model_by_alias=True,
+    responses={
+        200: {"description": "User found"},
+        404: {"description": "User not found"},
+    },
+)
+def get_user_by_id(id: int) -> dict:
+    return _get_user_or_404(id)
 
 
 @app.get(
-    "/api/user/name/{user_name}",
+    "/api/user/name/{name}",
+    summary="Get users by name",
     response_model=list[UserResponse],
     response_model_by_alias=True,
+    responses={200: {"description": "Success"}},
 )
-def get_users_by_name(user_name: str) -> list[dict]:
+def get_users_by_name(name: str) -> list[dict]:
     return [
         user
         for user in _users.values()
-        if user["Name"].lower() == user_name.lower()
+        if user["Name"].lower() == name.lower()
     ]
 
 
-@app.put("/api/user/update/{user_id}", response_model=UserResponse, response_model_by_alias=True)
-async def update_user(user_id: int, request: Request) -> dict:
-    _get_user_or_404(user_id)
+@app.put(
+    "/api/user/update/{id}",
+    summary="Update a user by ID",
+    response_model=UserResponse,
+    response_model_by_alias=True,
+    responses={200: {"description": "Success"}},
+)
+async def update_user(id: int, request: Request) -> dict:
+    _get_user_or_404(id)
     payload = await _read_payload(request)
 
     with _lock:
-        user = _serialize_user(user_id, payload)
-        _users[user_id] = user
+        user = _serialize_user(id, payload)
+        _users[id] = user
 
     return user
 
 
-@app.delete("/api/user/delete/{user_id}")
-def delete_user(user_id: int) -> dict:
+@app.delete(
+    "/api/user/delete/{id}",
+    summary="Delete a user by ID",
+    status_code=200,
+    responses={
+        200: {"description": "Success"},
+        400: {"description": "Incorrect id format"},
+        404: {"description": "User not found"},
+    },
+)
+def delete_user(id: int) -> Response:
     with _lock:
-        _get_user_or_404(user_id)
-        del _users[user_id]
+        _get_user_or_404(id)
+        del _users[id]
 
-    return {"Message": f"User {user_id} deleted"}
+    return Response(status_code=200)
+
+
+def custom_openapi() -> dict:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    response_overrides = {
+        "/api/user/create": {"200", "400"},
+        "/api/user/id/{id}": {"200", "404"},
+        "/api/user/name/{name}": {"200"},
+        "/api/user/update/{id}": {"200"},
+        "/api/user/delete/{id}": {"200", "400", "404"},
+    }
+
+    for path, allowed_codes in response_overrides.items():
+        for operation in openapi_schema["paths"].get(path, {}).values():
+            responses = operation.get("responses", {})
+            for status_code in list(responses):
+                if status_code not in allowed_codes:
+                    del responses[status_code]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 if __name__ == "__main__":
