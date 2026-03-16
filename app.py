@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
+from pathlib import Path
 from threading import Lock
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.utils import get_openapi
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -39,8 +41,14 @@ app = FastAPI(
     title="User management system API",
     description="API that handles user management",
     version="1.0.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SWAGGER_FILE = ROOT_DIR / "swagger.yaml"
 
 _users: dict[int, dict] = {}
 _next_id = 1
@@ -183,102 +191,18 @@ def delete_user(id: int) -> Response:
     return Response(status_code=200)
 
 
-def custom_openapi() -> dict:
-    if app.openapi_schema:
-        return app.openapi_schema
+@app.get("/swagger.yaml", include_in_schema=False)
+def get_swagger_yaml() -> FileResponse:
+    return FileResponse(SWAGGER_FILE, media_type="application/yaml")
 
-    openapi_schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
+
+@app.get("/docs", include_in_schema=False)
+def custom_swagger_ui() -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url="/swagger.yaml",
+        title=f"{app.title} - Swagger UI",
+        swagger_ui_parameters={"defaultModelsExpandDepth": -1},
     )
-
-    response_overrides = {
-        "/api/user/create": {"200", "400"},
-        "/api/user/id/{id}": {"200", "404"},
-        "/api/user/name/{name}": {"200"},
-        "/api/user/update/{id}": {"200"},
-        "/api/user/delete/{id}": {"200", "400", "404"},
-    }
-
-    for path, allowed_codes in response_overrides.items():
-        for operation in openapi_schema["paths"].get(path, {}).values():
-            responses = operation.get("responses", {})
-            for status_code in list(responses):
-                if status_code not in allowed_codes:
-                    del responses[status_code]
-
-    create_operation = openapi_schema["paths"].get("/api/user/create", {}).get("post")
-    if create_operation is not None:
-        create_operation["responses"] = {
-            "200": {
-                "description": "User created",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/UserResponse"}
-                    }
-                },
-            },
-            "400": {"description": "Bad request"},
-        }
-
-    get_by_id_operation = openapi_schema["paths"].get("/api/user/id/{id}", {}).get("get")
-    if get_by_id_operation is not None:
-        get_by_id_operation["responses"] = {
-            "200": {
-                "description": "User found",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/UserResponse"}
-                    }
-                },
-            },
-            "404": {"description": "User not found"},
-        }
-
-    get_by_name_operation = openapi_schema["paths"].get("/api/user/name/{name}", {}).get("get")
-    if get_by_name_operation is not None:
-        get_by_name_operation["responses"] = {
-            "200": {
-                "description": "Success",
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "type": "array",
-                            "items": {"$ref": "#/components/schemas/UserResponse"},
-                        }
-                    }
-                },
-            }
-        }
-
-    update_operation = openapi_schema["paths"].get("/api/user/update/{id}", {}).get("put")
-    if update_operation is not None:
-        update_operation["responses"] = {
-            "200": {
-                "description": "Success",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/UserResponse"}
-                    }
-                },
-            }
-        }
-
-    delete_operation = openapi_schema["paths"].get("/api/user/delete/{id}", {}).get("delete")
-    if delete_operation is not None:
-        delete_operation["responses"] = {
-            "200": {"description": "Success"},
-            "400": {"description": "Incorrect id format"},
-            "404": {"description": "User not found"},
-        }
-
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
-
-
-app.openapi = custom_openapi
 
 
 if __name__ == "__main__":
