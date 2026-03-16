@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 
@@ -192,8 +192,11 @@ def delete_user(id: int) -> Response:
 
 
 @app.get("/swagger.yaml", include_in_schema=False)
-def get_swagger_yaml() -> FileResponse:
-    return FileResponse(SWAGGER_FILE, media_type="application/yaml")
+def get_swagger_yaml(request: Request) -> PlainTextResponse:
+    swagger_text = SWAGGER_FILE.read_text(encoding="utf-8")
+    swagger_text = swagger_text.replace("host: example.com", f"host: {request.url.netloc}")
+    swagger_text = swagger_text.replace("  - http", f"  - {request.url.scheme}")
+    return PlainTextResponse(swagger_text, media_type="application/yaml")
 
 
 @app.get("/docs", include_in_schema=False)
