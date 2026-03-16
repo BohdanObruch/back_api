@@ -5,9 +5,10 @@ from datetime import date, datetime
 from threading import Lock
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from pydantic import BaseModel, Field, ValidationError
+from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-import json
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 
 DATE_FORMAT = "%d.%m.%Y"
@@ -22,10 +23,16 @@ class UserPayload(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class UserResponse(UserPayload):
+class UserResponse(BaseModel):
     user_id: int = Field(alias="Id")
+    name: str = Field(alias="Name")
+    surname: str = Field(alias="Surname")
+    date_of_birth: str = Field(alias="DateOfBirth")
     age: int = Field(alias="Age")
     is_adult: bool = Field(alias="IsAdult")
+    interests: list[str] = Field(alias="Interests")
+
+    model_config = {"populate_by_name": True}
 
 
 app = FastAPI(
@@ -78,20 +85,11 @@ def _get_user_or_404(user_id: int) -> dict:
     return user
 
 
-async def _read_payload(request: Request) -> UserPayload:
-    raw_body = await request.body()
-    if not raw_body:
-        raise HTTPException(status_code=400, detail="Request body is required")
-
-    try:
-        data = json.loads(raw_body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
-
-    try:
-        return UserPayload.model_validate(data)
-    except ValidationError as exc:
-        raise HTTPException(status_code=400, detail=exc.errors()) from exc
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(
+    _: Request, exc: RequestValidationError
+) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"message": exc.errors()})
 
 
 @app.get("/health", include_in_schema=False)
@@ -109,10 +107,9 @@ def healthcheck() -> dict:
         400: {"description": "Bad request"},
     },
 )
-async def create_user(request: Request) -> dict:
+async def create_user(payload: UserPayload) -> dict:
     global _next_id
 
-    payload = await _read_payload(request)
     with _lock:
         user_id = _next_id
         _next_id += 1
@@ -158,9 +155,8 @@ def get_users_by_name(name: str) -> list[dict]:
     response_model_by_alias=True,
     responses={200: {"description": "Success"}},
 )
-async def update_user(id: int, request: Request) -> dict:
+async def update_user(id: int, payload: UserPayload) -> dict:
     _get_user_or_404(id)
-    payload = await _read_payload(request)
 
     with _lock:
         user = _serialize_user(id, payload)
