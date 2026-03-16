@@ -209,6 +209,71 @@ def custom_openapi() -> dict:
                 if status_code not in allowed_codes:
                     del responses[status_code]
 
+    create_operation = openapi_schema["paths"].get("/api/user/create", {}).get("post")
+    if create_operation is not None:
+        create_operation["responses"] = {
+            "200": {
+                "description": "User created",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/UserResponse"}
+                    }
+                },
+            },
+            "400": {"description": "Bad request"},
+        }
+
+    get_by_id_operation = openapi_schema["paths"].get("/api/user/id/{id}", {}).get("get")
+    if get_by_id_operation is not None:
+        get_by_id_operation["responses"] = {
+            "200": {
+                "description": "User found",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/UserResponse"}
+                    }
+                },
+            },
+            "404": {"description": "User not found"},
+        }
+
+    get_by_name_operation = openapi_schema["paths"].get("/api/user/name/{name}", {}).get("get")
+    if get_by_name_operation is not None:
+        get_by_name_operation["responses"] = {
+            "200": {
+                "description": "Success",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/UserResponse"},
+                        }
+                    }
+                },
+            }
+        }
+
+    update_operation = openapi_schema["paths"].get("/api/user/update/{id}", {}).get("put")
+    if update_operation is not None:
+        update_operation["responses"] = {
+            "200": {
+                "description": "Success",
+                "content": {
+                    "application/json": {
+                        "schema": {"$ref": "#/components/schemas/UserResponse"}
+                    }
+                },
+            }
+        }
+
+    delete_operation = openapi_schema["paths"].get("/api/user/delete/{id}", {}).get("delete")
+    if delete_operation is not None:
+        delete_operation["responses"] = {
+            "200": {"description": "Success"},
+            "400": {"description": "Incorrect id format"},
+            "404": {"description": "User not found"},
+        }
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
