@@ -47,8 +47,8 @@ app = FastAPI(
     swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-SWAGGER_FILE = ROOT_DIR / "swagger.yaml"
+APP_DIR = Path(__file__).resolve().parent
+SWAGGER_FILE = APP_DIR / "swagger.yaml"
 
 _users: dict[int, dict] = {}
 _next_id = 1
